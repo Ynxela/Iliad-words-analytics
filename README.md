@@ -1,2 +1,2 @@
-# Iliad-words-analytics-
+# Iliad-words-analytics
 Text analytics application.
