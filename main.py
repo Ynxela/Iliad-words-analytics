@@ -3,18 +3,20 @@ import json
 import os.path
 import time
 
-mask = 'абвгдежзийклмнопрстуфхцчшщъыьэюя ,.-!?'
+mask = 'абвгдежзийклмнопрстуфхцчшщъыьэюя ,.-!?\n'
 file_name = 'my.txt'
-data_base = '{0}.json'.format(file_name)
-output_text = 'experiment_{0}.txt'.format(file_name)
-root_structure = {}
+just_name = file_name.split('.')[0]
+data_base = '{0}_db.json'.format(just_name)
+output_text = '{0}_out.txt'.format(just_name)
 pattern_len = 5
-next_symbols_len = 1
-min_id = 0
+post_pattern_len = 5
+first_index = 0
 
 
 # Проверяет, подходит ли паттерн. Критерий - символы в паттерне должны быть строго из множества mask
-def check_pattern(pattern):
+def pattern_is_valid(pattern):
+    if len(pattern) > 1 and '\n' in pattern:
+        return False
     for i in pattern:
         if i not in mask:
             return False
@@ -22,62 +24,32 @@ def check_pattern(pattern):
 
 
 # Функция добавляет паттерн в словарь, на входе - длина паттерна, мин индекс строки, сама строка и словарь-контейнер
-def add_pattern(p_len, min_id, line, letters_data):
-    max_id = len(str(line)) - 1
-    for id in range(min_id, max_id - p_len):
-        pattern = line[id:id + p_len]
+def add_pattern(p_len, last_index, line, root):
+    for index in range(first_index, last_index - p_len + 2):
+        pattern = line[index: index + p_len]
         # Добавляет паттерн в массив, если его там нет, проверяя, соответствует ли критериям
-        if pattern not in letters_data:
-            if check_pattern(pattern):
-                letters_data[pattern] = {}
+        if pattern not in root and '\n' not in pattern and pattern_is_valid(pattern):
+            root[pattern] = {}
 
 
-def add_pattern_next_letters(pattern, value, line):
-    min_id = line.index(pattern)
+# Функция заполняет словарь символами, идущими следом за паттерном
+def add_pattern_post_patterns(pattern, value, line, last_index):
     p_len = len(pattern)
-    max_id = len(str(line)) - p_len
-    for id in range(min_id, max_id):
-        # Соответствует ли срез паттерну? Если нет - пропускаем.
-        if line[id:id + p_len] == pattern:
-            # Если паттерн не последний, то символом берем следующий по индексу, если последний, то перенос строки
-            if id == max_id:
-                next_letter = '\n'
-            else:
-                next_letter = line[id + p_len]
-            if next_letter != '\n' and next_letter not in set(mask):
-                continue
-            # Если следующего символа нет еще в списке, то добавляем
-            if next_letter in value['next_letter']:
-                value['next_letter'][next_letter] += 1
-            else:
-                value['next_letter'][next_letter] = 1
-            if id < max_id - p_len:
-                next_pattern = line[id + p_len: id + next_symbols_len + p_len + 1]
-                if next_pattern == '  ':
-                    continue
-                if check_pattern(next_pattern):
-                    if next_pattern in value['next_letter']:
-                        value['next_letter'][next_pattern] += 1
+    for index in range(first_index, last_index - p_len + 2):
+        if line[index:index + p_len] == pattern:  # Соответствует ли срез паттерну? Если нет - пропускаем.
+            # Находим максимальную длину пост-паттерна
+            max_post_pattern_len = last_index - index - p_len + 1
+            num_of_post_patterns = post_pattern_len
+            if max_post_pattern_len < post_pattern_len:
+                num_of_post_patterns = max_post_pattern_len
+            # Находим все пост-паттерны
+            for i in range(1, num_of_post_patterns + 1):
+                post_pattern = line[index + p_len: index + p_len + i]
+                if pattern_is_valid(post_pattern):
+                    if post_pattern in value['post_pattern']:
+                        value['post_pattern'][post_pattern] += 1
                     else:
-                        value['next_letter'][next_pattern] = 1
-            if id < max_id - p_len - 1:
-                next_pattern = line[id + p_len: id + next_symbols_len + p_len + 2]
-                if next_pattern == '   ':
-                    continue
-                if check_pattern(next_pattern):
-                    if next_pattern in value['next_letter']:
-                        value['next_letter'][next_pattern] += 1
-                    else:
-                        value['next_letter'][next_pattern] = 1
-            if id < max_id - p_len - 2:
-                next_pattern = line[id + p_len: id + next_symbols_len + p_len + 3]
-                if next_pattern == '   ':
-                    continue
-                if check_pattern(next_pattern):
-                    if next_pattern in value['next_letter']:
-                        value['next_letter'][next_pattern] += 1
-                    else:
-                        value['next_letter'][next_pattern] = 1
+                        value['post_pattern'][post_pattern] = 1
 
 
 def safe_data(data, file):
@@ -85,9 +57,9 @@ def safe_data(data, file):
         json.dump(data, write_file, ensure_ascii=False, indent=4)
 
 
-def next_symbol(base_symbol, data):
-    next_letters = data['letters_data'][base_symbol]['next_letter']
-    next_s = random.choices(list(next_letters.keys()), list(next_letters.values()))[0]
+def get_post_pattern(base_pattern, data):
+    post_patterns = data[base_pattern]['post_pattern']
+    next_s = random.choices(list(post_patterns.keys()), list(post_patterns.values()))[0]
     return next_s
 
 
@@ -95,88 +67,89 @@ def write_text(count_symbols):
     with open(data_base, "r") as write_file:
         root_structure = json.loads(write_file.read())
     text = ''
-    base_symbol = random.choice(mask)
+    base_pattern = random.choice(mask)
     for i in range(count_symbols):
         if len(text) > 6:
-            base_symbol = text[-5:]
+            base_pattern = text[-5:]
         try:
-            letter = next_symbol(base_symbol, root_structure)
+            letter = get_post_pattern(base_pattern, root_structure)
         except:
             try:
-                base_symbol = text[-4:]
-                letter = next_symbol(base_symbol, root_structure)
+                base_pattern = text[-4:]
+                letter = get_post_pattern(base_pattern, root_structure)
             except:
                 try:
-                    base_symbol = text[-3:]
-                    letter = next_symbol(base_symbol, root_structure)
+                    base_pattern = text[-3:]
+                    letter = get_post_pattern(base_pattern, root_structure)
                 except:
                     try:
-                        base_symbol = text[-2:]
-                        letter = next_symbol(base_symbol, root_structure)
+                        base_pattern = text[-2:]
+                        letter = get_post_pattern(base_pattern, root_structure)
                     except:
                         try:
-                            base_symbol = text[-1:]
-                            letter = next_symbol(base_symbol, root_structure)
+                            base_pattern = text[-1:]
+                            letter = get_post_pattern(base_pattern, root_structure)
                         except:
-                            base_symbol = random.choice(mask)
-                            letter = next_symbol(base_symbol, root_structure)
+                            base_pattern = random.choice(mask)
+                            letter = get_post_pattern(base_pattern, root_structure)
         text += letter
-        base_symbol = letter
+        base_pattern = letter
 
     with open(output_text, 'ta', encoding='utf-8') as out_text:
-        out_text.write('{0}'.format(time.ctime()) + '\n' + text + '\n\n')
+        out_text.write(
+            '{0} | '.format(time.ctime()) + 'длина паттерна - {0} | '.format(
+                pattern_len) + 'длина пост-паттерна - {0}'.format(post_pattern_len) + '\n' + text + '\n\n')
 
 
-if not os.path.exists(data_base):
-    f = open(data_base, 'tw', encoding='utf-8')
-    f.close()
-    safe_data(root_structure, data_base)
-
-
-def fill_data(min_id, flag):
+def fill_db(flag):
     with open(data_base, "r") as write_file:
         root_structure = json.loads(write_file.read())
-        if 'letters_data' not in root_structure or flag == 1:
-            root_structure['letters_data'] = {}
+        if len(root_structure) == 0 or flag == 1:
+            root_structure = {}
 
             # Количество каждого символа и пары в тексте
             with open(file_name, 'r') as text:
-                for line in text:
+                for line in text:  # Для каждой линии в тексте
                     line = line.lower()
+                    last_index = len(line) - 1  # Последний индекс в строке
                     # Добавляем паттерны всех длин
-                    for i in range(1, pattern_len + 1):
-                        add_pattern(i, min_id, line, root_structure['letters_data'])
+                    for p_len in range(1, pattern_len + 1):
+                        add_pattern(p_len, last_index, line, root_structure)
 
             # Количество встреч каждого символа после искомого символа (key):
-            for key, value in root_structure['letters_data'].items():
-                # print(key)
-                # Добавили символ для анализа
-                value['next_letter'] = {}
+            for key, value in root_structure.items():
+                value['post_pattern'] = {}  # Добавили символ для анализа
                 # Здесь начинаем прогонять символы и забивать данные в словарь, который создан под данную букву
                 with open(file_name, 'r') as text:
                     for line in text:
                         line = line.lower()
-                        # Если символа нет в строке - берем следующую строку
-                        if key not in line:
-                            continue
-                        # Здесь проверяем каждый символ и паттерн
-                        add_pattern_next_letters(key, value, line)
+                        last_index = len(line) - 1
+                        if key in line:
+                            add_pattern_post_patterns(key, value, line, last_index)
 
             # # Если пара или тройка ни разу не встретилась в тексте, то удалить
             # keys_to_delete = []
-            # for key, value in root_structure['letters_data'].items():
-            #     if len(value['next_letter']) == 0:
+            # for key, value in root_structure.items():
+            #     if len(value['post_pattern']) == 0:
             #         keys_to_delete.append(key)
             # for key in keys_to_delete:
-            #     del root_structure['letters_data'][key]
+            #     del root_structure[key]
 
-            # del root_structure['letters_data'][' ']['next_letter'][' ']
+            # del root_structure[' ']['post_pattern'][' ']
             # for i in range(2, pattern_len + 1):
             #     keys_to_delete = '{}'.format(' ' * i)
-            #     del root_structure['letters_data'][keys_to_delete]
+            #     del root_structure[keys_to_delete]
 
             safe_data(root_structure, data_base)
 
 
-fill_data(min_id, 1)
-write_text(500)
+def check_existing_db():
+    if not os.path.exists(data_base):
+        f = open(data_base, 'tw', encoding='utf-8')
+        f.close()
+        safe_data({}, data_base)
+
+
+check_existing_db()
+fill_db(1)
+write_text(300)
